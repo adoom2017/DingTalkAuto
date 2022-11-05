@@ -1,4 +1,4 @@
-# DingDingAuto
-Auto clock in dingding
+# DingTalkAuto
+Auto clock in dingTalk use Wechat remote
 
 use autox.js

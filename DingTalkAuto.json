@@ -1,5 +1,14 @@
 {
-    "DDAccount": "aaaa",
-    "DDPassword": "bbbb",
-    "PushDeerToken": "ccccc"
+    "DDInfo": {
+        "DDAccount": "DingTalk Account",
+        "DDPassword": "DingTalk Password",
+        "CorporationId": "Corporation ID"
+    },
+    "PushInfo": {
+        "PushMethod": "PushDeer",
+        "PushDeerToken": "Push Deer Token",
+        "TelegramBotToken": "Telegram Bot Token",
+        "TelegramChatID": "Telegram Chat ID"
+    },
+    "ScreenBrightness": 10
 }

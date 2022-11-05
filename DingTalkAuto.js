@@ -1,355 +1,305 @@
-const ACCOUNT = "钉钉账号"
-const PASSWORD = "钉钉密码"
 
-const PUSH_DEER =  "PushDeer发送密钥"
-const TELEGRAM_BOT_TOKEN = "BOT_TOKEN"
-const TELEGRAM_CHAT_ID = "CHAT_ID"
+// DingTalk package id
+const PACKAGE_ID_DINGTALK = "com.alibaba.android.rimet"
+           
+// Wechat package id
+const PACKAGE_ID_WECHAT = "com.tencent.mm"
 
-const PUSH_METHOD = {Telegram: 1, PushDeer: 2}
-const DEFAULT_PUSH_METHOD = PUSH_METHOD.PushDeer
+// Notification white list
+const PACKAGE_ID_WHITE_LIST = [PACKAGE_ID_DINGTALK, PACKAGE_ID_WECHAT]
 
-const PACKAGE_ID_DD = "com.alibaba.android.rimet"           // 钉钉
-const PACKAGE_ID_WECHAT = "com.tencent.mm"                  // wechat
+const SIGNUP_ACTIVITY = "com.alibaba.android.user.login.global.SignUpWithPwdGlobalActivity"
 
-// 执行时的屏幕亮度（0-255）, 需要"修改系统设置"权限
-const SCREEN_BRIGHTNESS = 20    
-
-// 是否过滤通知
-const NOTIFICATIONS_FILTER = true
-
-// PackageId白名单
-const PACKAGE_ID_WHITE_LIST = [PACKAGE_ID_DD,PACKAGE_ID_WECHAT]
-
-// 公司的钉钉CorpId, 获取方法见 2020-09-24 更新日志。如果只加入了一家公司, 可以不填
-const CORP_ID = "" 
-
-// 监听音量+键, 开启后无法通过音量+键调整音量, 按下音量+键：结束所有子线程
-const OBSERVE_VOLUME_KEY = true
-
-// =================== ↓↓↓ 主线程：监听通知 ↓↓↓ ====================
-
-// 读取配置文件
-var path = "/sdcard/脚本/config/DingDingAuto.json"
-if (files.exists(path)) {
-    var config = files.read(path)
-}
-
-// 运行日志路径
-var globalLogFilePath = "/sdcard/脚本/logs/" + getCurrentDate() + "-log.txt"
-
-// 检查无障碍权限
+// need accessibility service
 auto.waitFor("normal")
 
-// 检查Autojs版本
+// autox.js version should high then 4.1.0
 requiresAutojsVersion("4.1.0")
 
-// 创建运行日志
+// Read config from file, where can change file path, if no file found will throw exception
+var path = "/sdcard/脚本/config/DingTalkAuto.json"
+var config = null
+if (files.exists(path)) {
+    config = JSON.parse(files.read(path))
+}
+else {
+    toastLog("No config file found.")
+    throw new Error("No config")
+}
+
+// log file path
+var globalLogFilePath = "/sdcard/脚本/logs/" + getCurrentDate() + ".log"
+
+// create global log file
 console.setGlobalLogConfig({
     file: globalLogFilePath
-});
+})
 
-// 监听本机通知
+// notification monitor
 events.observeNotification()    
 events.on("notification", function(n) {
     notificationHandler(n)
-});
+})
 
-events.setKeyInterceptionEnabled("volume_up", OBSERVE_VOLUME_KEY)
+toastLog("Auto clock begin, please find any infomation in the log")
 
-if (OBSERVE_VOLUME_KEY) {
-    events.observeKey()
-};
-    
-// 监听音量+键
-events.onKeyDown("volume_up", function(event){
-    threads.shutDownAll()
-    device.setBrightnessMode(1)
-    device.cancelKeepingAwake()
-    toast("已中断所有子线程!")
-
-    // 可以在此调试各个方法
-    // doClock()
-    // sendPushDeer(测试主题, 测试文本)
-});
-
-toastLog("监听中, 请在日志中查看记录的通知及其内容")
-
-// =================== ↑↑↑ 主线程：监听通知 ↑↑↑ =====================
-
-/**
- * @description 处理通知
- */
 function notificationHandler(n) {
     
-    var packageId = n.getPackageName()  // 获取通知包名
-    var text = n.getText()              // 获取通知文本
+    var packageId = n.getPackageName()
+    var message = n.getText()
     
-    // 过滤 PackageId 白名单之外的应用所发出的通知
-    if (!filterNotification(packageId, text)) {
-        return;
+    if (!filterNotification(packageId, message)) {
+        return
     }
 
-    console.log("从" + packageId + "接收到消息：" + text)
+    console.verbose("Receive message: " + message + " from " + packageId)
     
-    // 接收微信的打卡信息，然后做对应处理
-    if (packageId == PACKAGE_ID_WECHAT && text.indexOf("打卡") >= 0) {
-        threads.shutDownAll()
-        threads.start(function(){
-            doClock()
-        })
+    // receive message from wechat which inclue "打卡", then do auto clock
+    if (packageId == PACKAGE_ID_WECHAT) {
+
+        if (message.indexOf("打卡")>=0) {
+            threads.shutDownAll()
+            threads.start(function(){
+                doClock(message)
+            })
+            return
+        }
+        else if (message.indexOf("PushDeer")>=0) {
+            threads.shutDownAll()
+            threads.start(function(){
+                sendPushDeer("Push Test", "This is a test message.")
+            })
+            return
+        }
+        else if (message.indexOf("Telegram")>=0) {
+            threads.shutDownAll()
+            threads.start(function(){
+                sendTelegram("This is a test message.")
+            })
+            return
+        }
+        
     }
     
-    // 监听钉钉返回的考勤结果
-    if (packageId == PACKAGE_ID_DD && text.indexOf("考勤打卡") >= 0) { 
+    // messge from dingtalk, push clock result
+    else if (packageId == PACKAGE_ID_DINGTALK && message.indexOf("考勤打卡")>=0) { 
         threads.shutDownAll()
         threads.start(function() {
-            switch(DEFAULT_MESSAGE_DELIVER) {
-                case PUSH_METHOD.PushDeer:
-                    sendPushDeer("考勤结果", text)
-                    break;
-                case PUSH_METHOD.Telegram:
-                    sendTelegram("考勤结果", text)
-                    break;
+            switch(config.PushInfo.PushMethod) {
+                case "PushDeer":
+                    sendPushDeer("考勤结果", message)
+                    break
+                case "Telegram":
+                    sendTelegram(message)
+                    break
             }
         })
-        return;
+        return
     }
 }
 
 /**
- * @description 打卡流程
+ * @description clocking progress
  */
-function doClock() {
+function doClock(message) {
+    console.log("Begin to clock: " + getCurrentDate() + " " + getCurrentTime())
 
-    currentDate = new Date()
-    console.log("本地时间: " + getCurrentDate() + " " + getCurrentTime())
-    console.log("开始打卡流程!")
-
-    brightScreen()      // 唤醒屏幕
-    unlockScreen()      // 解锁屏幕
-    signIn()            // 自动登录
-    handleLate()        // 处理迟到
-    attendKaoqin()      // 考勤打卡
-
-    if (currentDate.getHours() <= 12) 
-        clockIn()           
-    else 
-        clockOut()          
+    // wakeup
+    brightScreen()
+    // unlock
+    unlockScreen()
+    // auto login
+    signIn()
+    // bring up dingtalk clock page
+    attendClockPage()
     
+    if (message.indexOf("上班打卡")>=0) 
+        clockIn()
+    else 
+        clockOut()
+    
+    // lock screen for battery save
     lockScreen()
 }
 
 /**
- * @description PushDeer推送
- * @param {string} title 标题
- * @param {string} message 消息
+ * @description Push message use PushDeer
+ * @param {string} title title
+ * @param {string} message message
  */
  function sendPushDeer(title, message) {
-
-    console.log("向 PushDeer 发起推送请求")
-
     url = "https://api2.pushdeer.com/message/push"
 
-    res = http.post(encodeURI(url), {
-        "pushkey": PUSH_DEER,
+    resp = http.post(encodeURI(url), {
+        "pushkey": config.PushInfo.PushDeerToken,
         "text": title,
         "desp": message,
         "type": "markdown"
-    });
+    })
 
-    console.log(res)
+    console.log("push message: " + message + " use pushdeer, response: " + resp.body.string())
+
     sleep(1000)
-    lockScreen()    // 关闭屏幕
+    lockScreen()
 }
 
 /**
- * @description Telegram推送
- * @param {string} title 标题
- * @param {string} message 消息
+ * @description Push message use Telegram
+ * @param {string} message message
  */
- function sendTelegram(title, message) {
+ function sendTelegram(message) {
+    url = "https://api.telegram.org/bot" + config.PushInfo.TelegramBotToken + "/sendMessage"
 
-    console.log("向 Telegram 发起推送请求")
-
-    url = "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/sendMessage"
-
-    res = http.post(encodeURI(url), {
-        "chat_id": TELEGRAM_CHAT_ID,
+    resp = http.post(encodeURI(url), {
+        "chat_id": config.PushInfo.TelegramChatID,
         "text": message
     });
 
-    console.log(res)
+    console.log("push message: " + message + " use telegram, response: " + resp.body.string())
     sleep(1000)
-    lockScreen()    // 关闭屏幕
+    lockScreen()
 }
 
 /**
- * @description 唤醒设备
+ * @description wakeup device
  */
 function brightScreen() {
 
-    console.log("唤醒设备")
+    console.log("wakeup device")
     
-    device.setBrightnessMode(0) // 手动亮度模式
-    device.setBrightness(SCREEN_BRIGHTNESS)
-    device.wakeUpIfNeeded() // 唤醒设备
-    device.keepScreenOn()   // 保持亮屏
-    sleep(1000) // 等待屏幕亮起
+    // brightness mode manual
+    device.setBrightnessMode(0)
+    device.setBrightness(config.ScreenBrightness)
+    device.wakeUpIfNeeded()
+    device.keepScreenOn()
+    sleep(1000)
     
     if (!device.isScreenOn()) {
-        console.warn("设备未唤醒, 重试")
+        console.warn("Failed to wakeup device, retry")
         device.wakeUpIfNeeded()
         brightScreen()
     }
     else {
-        console.info("设备已唤醒")
+        console.info("Device has been wakeup")
     }
-    sleep(1000)
 }
 
 /**
- * @description 锁屏
- * 依赖android手机上一键锁屏的快捷方式，名字根据需要调整
+ * @description lock screen
+ * Rely on the shortcut of the lock screen on the android phone, the name is adjusted as needed
  */
  function lockScreen(){
 
-    console.log("关闭屏幕")
+    console.log("Begin to lock screen")
 
-    //上滑到主屏幕
+    // use gesture swap up, back to main screen
     gesture(
-        320, // 滑动时间：毫秒
+        320,
         [
-            device.width  * 0.5,    // 滑动起点 x 坐标：屏幕宽度的一半
-            device.height * 0.99    // 滑动起点 y 坐标：屏幕底部
+            device.width  * 0.5,
+            device.height * 0.99
         ],
         [
-            device.width * 0.5,     // 滑动终点 x 坐标：屏幕宽度的一半
-            device.height * 0.6     // 滑动终点 y 坐标：距离屏幕顶部 40% 的位置
+            device.width * 0.5,
+            device.height * 0.6
         ]
     )
-
     sleep(2000)
-    // 找到锁屏快捷键
-    text("锁屏").waitFor()
 
-    // 点击锁屏快捷键
-    click("锁屏")
+    text("锁屏").waitFor()  // find the shortcut
+    click("锁屏")           // click the shortcut
+
+    // brightness mode auto
+    device.setBrightnessMode(1)
+    device.cancelKeepingAwake()
+
     sleep(1000)
-
-    device.setBrightnessMode(1)     // 自动亮度模式
-    device.cancelKeepingAwake()     // 取消设备常亮
     
     if (isDeviceLocked()) {
-        console.info("屏幕已关闭")
+        console.info("Succeed to lock screen")
     }
     else {
-        console.error("屏幕未关闭, 请尝试其他锁屏方案, 或等待屏幕自动关闭")
+        console.error("Failed to lock screen")
     }
 }
 
 /**
- * @description 解锁屏幕
+ * @description unlock screen
  */
 function unlockScreen() {
 
-    console.log("解锁屏幕")
+    console.log("Begin to unlock screen")
     
     if (isDeviceLocked()) {
 
         gesture(
-            320, // 滑动时间：毫秒
+            320,
             [
-                device.width  * 0.5,    // 滑动起点 x 坐标：屏幕宽度的一半
-                device.height * 0.9     // 滑动起点 y 坐标：距离屏幕底部 10% 的位置, 华为系统需要往上一些
+                device.width  * 0.5,
+                device.height * 0.9
             ],
             [
-                device.width / 2,       // 滑动终点 x 坐标：屏幕宽度的一半
-                device.height * 0.1     // 滑动终点 y 坐标：距离屏幕顶部 10% 的位置
+                device.width * 0.5,
+                device.height * 0.1
             ]
         )
 
-        sleep(1000) // 等待解锁动画完成
-        home()
-        sleep(1000) // 等待返回动画完成
+        sleep(1000)
     }
 
     if (isDeviceLocked()) {
-        console.error("上滑解锁失败, 请按脚本中的注释调整 gesture(time, [x1,y1], [x2,y2]) 方法的参数!")
+        console.error("Failed to unlock screen")
         return;
     }
-    console.info("屏幕已解锁")
+    console.info("Succeed to unlock screen")
 }
 
 /**
- * @description 启动并登陆钉钉
+ * @description start and login dingtalk
  */
 function signIn() {
+    app.launchPackage(PACKAGE_ID_DINGTALK)
+    console.log("Starting" + app.getAppName(PACKAGE_ID_DINGTALK) + "...")
 
-    app.launchPackage(PACKAGE_ID_DD)
-    console.log("正在启动" + app.getAppName(PACKAGE_ID_DD) + "...")
+    // mute device
+    setVolume(0)
+    // waiting dingtalk start
+    sleep(10000)
 
-    setVolume(0) // 设备静音
-
-    sleep(10000) // 等待钉钉启动
-
-    if (currentPackage() == PACKAGE_ID_DD &&
-        currentActivity() == "com.alibaba.android.user.login.SignUpWithPwdActivity") {
-        console.info("账号未登录")
-
+    if (currentPackage() == PACKAGE_ID_DINGTALK &&
+        currentActivity() == SIGNUP_ACTIVITY) {                             
+        console.info("Account is not login")
+        
         var account = id("et_phone_input").findOne()
-        account.setText(ACCOUNT)
-        console.log("输入账号")
+        account.setText(config.DDInfo.DDAccount)
+        console.log("input account")
 
         var password = id("et_pwd_login").findOne()
-        password.setText(PASSWORD)
-        console.log("输入密码")
-        
-        var privacy = id("cb_privacy").findOne()
-        privacy.click()
-        console.log("同意隐私协议")
+        password.setText(config.DDInfo.DDPassword)
+        console.log("input password")
         
         var btn_login = id("btn_next").findOne()
         btn_login.click()
-        console.log("正在登陆...")
+        console.log("login...")
 
         sleep(3000)
     }
 
-    if (currentPackage() == PACKAGE_ID_DD &&
-        currentActivity() != "com.alibaba.android.user.login.SignUpWithPwdActivity") {
-        console.info("账号已登录")
-        sleep(1000)
+    if (currentPackage() == PACKAGE_ID_DINGTALK &&
+        currentActivity() != SIGNUP_ACTIVITY) {
+        console.info("Account is login")
     }
 }
 
-
 /**
- * @description 处理迟到打卡
+ * @description use URL Scheme to bring up clock page
  */
-function handleLate(){
-   
-    if (null != textMatches("迟到打卡").clickable(true).findOne(1000)) {
-        btn_late = textMatches("迟到打卡").clickable(true).findOnce() 
-        btn_late.click()
-        console.warn("迟到打卡")
-    }
-    if (null != descMatches("迟到打卡").clickable(true).findOne(1000)) {
-        btn_late = descMatches("迟到打卡").clickable(true).findOnce() 
-        btn_late.click()
-        console.warn("迟到打卡")
-    }
-}
-
-
-/**
- * @description 使用 URL Scheme 进入考勤界面
- */
-function attendKaoqin(){
+function attendClockPage(){
 
     var url_scheme = "dingtalk://dingtalkclient/page/link?url=https://attend.dingtalk.com/attend/index.html"
 
-    if(CORP_ID != "") {
-        url_scheme = url_scheme + "?corpId=" + CORP_ID
+    if(config.DDInfo.CorporationId != "") {
+        url_scheme = url_scheme + "?corpId=" + config.DDInfo.CorporationId
     }
 
     var a = app.intent({
@@ -358,11 +308,11 @@ function attendKaoqin(){
         //flags: [Intent.FLAG_ACTIVITY_NEW_TASK]
     });
     app.startActivity(a);
-    console.log("正在进入考勤界面...")
+    console.log("Bringing up clock page...")
     
     textContains("打卡").waitFor()
-    console.info("已进入考勤界面")
-    sleep(1000)
+    console.info("Succeed to bring up clock page.")
+    sleep(10000)
 }
 
 
@@ -371,11 +321,10 @@ function attendKaoqin(){
  */
 function clockIn() {
 
-    console.log("上班打卡...")
+    console.log("Clock in...")
 
     if (null != textContains("已打卡").findOne(1000)) {
-        console.info("已打卡")
-        toast("已打卡")
+        console.info("Already clock in")
         home()
         sleep(1000)
         return;
@@ -384,15 +333,14 @@ function clockIn() {
     if (null != textMatches("上班打卡").clickable(true).findOne(1000)) {
         btn_clockin = textMatches("上班打卡").clickable(true).findOnce()
         btn_clockin.click()
-        console.log("按下打卡按钮")
+        console.log("Press clock in button")
     }
     else {
         click(device.width / 2, device.height * 0.560)
-        console.log("点击打卡按钮坐标")
+        console.log("Press clock in button use position")
     }
-    sleep(1000)
-    handleLate() // 处理迟到打卡
-    
+
+    sleep(10000)
     home()
     sleep(1000)
 }
@@ -403,29 +351,28 @@ function clockIn() {
  */
 function clockOut() {
 
-    console.log("下班打卡...")
+    console.log("Begin to clock out...")
 
     if (null != textMatches("下班打卡").clickable(true).findOne(1000)) {
         btn_clockout = textMatches("下班打卡").clickable(true).findOnce()
         btn_clockout.click()
-        console.log("按下打卡按钮")
-        sleep(1000)
+        console.log("Press clock out button")
+
     }
     else {
         click(device.width / 2, device.height * 0.560)
-        console.log("点击打卡按钮坐标")
+        console.log("Press clock out button use position")
     }
 
     if (null != textContains("早退打卡").clickable(true).findOne(1000)) {
         className("android.widget.Button").text("早退打卡").clickable(true).findOnce().parent().click()
-        console.warn("早退打卡")
+        console.warn("Check out earlier")
     }
     
+    sleep(10000)
     home()
     sleep(1000)
 }
-
-// ===================== ↓↓↓ 功能函数 ↓↓↓ =======================
 
 function dateDigitToString(num){
     return num < 10 ? '0' + num : num
@@ -450,18 +397,11 @@ function getCurrentDate(){
     return formattedDateString
 }
 
-// 通知过滤器
+// notification filter
 function filterNotification(bundleId, text) {
-    var check = PACKAGE_ID_WHITE_LIST.some(function(item) {return bundleId == item}) 
-    if (!NOTIFICATIONS_FILTER || check) {
-        return true
-    }
-    else {
-        return false 
-    }
+    return PACKAGE_ID_WHITE_LIST.some(function(item) {return bundleId == item}) 
 }
 
-// 屏幕是否为锁定状态
 function isDeviceLocked() {
     importClass(android.app.KeyguardManager)
     importClass(android.content.Context)
@@ -469,10 +409,9 @@ function isDeviceLocked() {
     return km.isKeyguardLocked()
 }
 
-// 设置媒体和通知音量
 function setVolume(volume) {
     device.setMusicVolume(volume)
     device.setNotificationVolume(volume)
-    console.verbose("媒体音量:" + device.getMusicVolume())
-    console.verbose("通知音量:" + device.getNotificationVolume())
+    console.verbose("media volume:" + device.getMusicVolume())
+    console.verbose("notificaiton volume:" + device.getNotificationVolume())
 }
