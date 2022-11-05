@@ -317,7 +317,7 @@ function attendClockPage(){
 
 
 /**
- * @description 上班打卡 
+ * @description Clock in 
  */
 function clockIn() {
 
@@ -347,7 +347,7 @@ function clockIn() {
 
 
 /**
- * @description 下班打卡 
+ * @description Clock out 
  */
 function clockOut() {
 
@@ -357,16 +357,14 @@ function clockOut() {
         btn_clockout = textMatches("下班打卡").clickable(true).findOnce()
         btn_clockout.click()
         console.log("Press clock out button")
-
+    }
+    else if (null != textContains("早退打卡").clickable(true).findOne(1000)) {
+        className("android.widget.Button").text("早退打卡").clickable(true).findOnce().parent().click()
+        console.warn("Check out earlier")
     }
     else {
         click(device.width / 2, device.height * 0.560)
         console.log("Press clock out button use position")
-    }
-
-    if (null != textContains("早退打卡").clickable(true).findOne(1000)) {
-        className("android.widget.Button").text("早退打卡").clickable(true).findOnce().parent().click()
-        console.warn("Check out earlier")
     }
     
     sleep(10000)
