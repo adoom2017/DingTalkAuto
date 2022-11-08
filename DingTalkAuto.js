@@ -48,26 +48,28 @@ function notificationHandler(n) {
     var packageId = n.getPackageName()
     var message = n.getText()
     
+    // only monitor messages from Dingtalk and Wechat
     if (!filterNotification(packageId, message)) {
         return
     }
 
-    console.verbose("Receive message: " + message + " from " + packageId)
+    console.verbose("Receive message: " + message + " from " + app.getAppName(packageId))
     
     // receive message from wechat which inclue "打卡", then do auto clock
     if (packageId == PACKAGE_ID_WECHAT) {
 
-        if (message.indexOf("打卡")>=0) {
+        if (message.indexOf("上班打卡")>=0 || message.indexOf("下班打卡")>=0) {
             threads.shutDownAll()
             threads.start(function(){
                 doClock(message)
+                lockScreen()
             })
             return
         }
         else if (message.indexOf("PushDeer")>=0) {
             threads.shutDownAll()
             threads.start(function(){
-                sendPushDeer("Push Test", "This is a test message.")
+                sendPushDeer("This is a test message.")
             })
             return
         }
@@ -78,21 +80,14 @@ function notificationHandler(n) {
             })
             return
         }
-        
     }
     
-    // messge from dingtalk, push clock result
+    // messges from dingtalk, only push clock result
     else if (packageId == PACKAGE_ID_DINGTALK && message.indexOf("考勤打卡")>=0) { 
         threads.shutDownAll()
         threads.start(function() {
-            switch(config.PushInfo.PushMethod) {
-                case "PushDeer":
-                    sendPushDeer("考勤结果", message)
-                    break
-                case "Telegram":
-                    sendTelegram(message)
-                    break
-            }
+            sendResult(message)
+            lockScreen()
         })
         return
     }
@@ -122,32 +117,31 @@ function doClock(message) {
     lockScreen()
 }
 
-/**
- * @description Push message use PushDeer
- * @param {string} title title
- * @param {string} message message
- */
- function sendPushDeer(title, message) {
+function sendResult(message) {
+    switch(config.PushInfo.PushMethod) {
+        case "PushDeer":
+            sendPushDeer(message)
+            break
+        case "Telegram":
+            sendTelegram(message)
+            break
+    }
+}
+
+ function sendPushDeer(message) {
     url = "https://api2.pushdeer.com/message/push"
 
     resp = http.post(encodeURI(url), {
         "pushkey": config.PushInfo.PushDeerToken,
-        "text": title,
+        "text": "考勤结果",
         "desp": message,
         "type": "markdown"
     })
 
-    console.log("push message: " + message + " use pushdeer, response: " + resp.body.string())
-
-    sleep(1000)
-    lockScreen()
+    console.info("push message: " + message + " use pushdeer, response: " + resp.body.string())
 }
 
-/**
- * @description Push message use Telegram
- * @param {string} message message
- */
- function sendTelegram(message) {
+function sendTelegram(message) {
     url = "https://api.telegram.org/bot" + config.PushInfo.TelegramBotToken + "/sendMessage"
 
     resp = http.post(encodeURI(url), {
@@ -155,9 +149,7 @@ function doClock(message) {
         "text": message
     });
 
-    console.log("push message: " + message + " use telegram, response: " + resp.body.string())
-    sleep(1000)
-    lockScreen()
+    console.info("push message: " + message + " use telegram, response: " + resp.body.string())
 }
 
 /**
@@ -165,32 +157,33 @@ function doClock(message) {
  */
 function brightScreen() {
 
-    console.log("wakeup device")
+    console.info("Begin to wake up device.")
     
     // brightness mode manual
     device.setBrightnessMode(0)
     device.setBrightness(config.ScreenBrightness)
     device.wakeUpIfNeeded()
     device.keepScreenOn()
+    
+    // wait for wake up
     sleep(1000)
     
     if (!device.isScreenOn()) {
-        console.warn("Failed to wakeup device, retry")
-        device.wakeUpIfNeeded()
-        brightScreen()
+        console.warn("Failed to wake up device.")
     }
     else {
-        console.info("Device has been wakeup")
+        console.info("Device has been wakeuped.")
     }
 }
 
 /**
  * @description lock screen
- * Rely on the shortcut of the lock screen on the android phone, the name is adjusted as needed
+ * Rely on the shortcut of the lock screen on the android phone, the name can be adjusted as needed
+ * on miui, this shortcut app call "锁屏"
  */
  function lockScreen(){
 
-    console.log("Begin to lock screen")
+    console.info("Begin to lock screen")
 
     // use gesture swap up, back to main screen
     gesture(
@@ -204,6 +197,8 @@ function brightScreen() {
             device.height * 0.6
         ]
     )
+
+    // wait back to main screen
     sleep(2000)
 
     text("锁屏").waitFor()  // find the shortcut
@@ -219,7 +214,7 @@ function brightScreen() {
         console.info("Succeed to lock screen")
     }
     else {
-        console.error("Failed to lock screen")
+        console.error("Failed to lock screen, please lock screen manually")
     }
 }
 
@@ -228,7 +223,7 @@ function brightScreen() {
  */
 function unlockScreen() {
 
-    console.log("Begin to unlock screen")
+    console.info("Begin to unlock screen")
     
     if (isDeviceLocked()) {
 
@@ -242,52 +237,53 @@ function unlockScreen() {
                 device.width * 0.5,
                 device.height * 0.1
             ]
-        )
-
-        sleep(1000)
+        )        
     }
+
+    sleep(1000)
 
     if (isDeviceLocked()) {
         console.error("Failed to unlock screen")
-        return;
     }
-    console.info("Succeed to unlock screen")
+    else {
+        console.info("Succeed to unlock screen")
+    }
 }
 
 /**
  * @description start and login dingtalk
  */
 function signIn() {
+    console.info("Begin to start " + app.getAppName(PACKAGE_ID_DINGTALK) + "...")
     app.launchPackage(PACKAGE_ID_DINGTALK)
-    console.log("Starting" + app.getAppName(PACKAGE_ID_DINGTALK) + "...")
 
     // mute device
     setVolume(0)
-    // waiting dingtalk start
-    sleep(10000)
 
-    if (currentPackage() == PACKAGE_ID_DINGTALK &&
-        currentActivity() == SIGNUP_ACTIVITY) {                             
-        console.info("Account is not login")
+    // waiting dingtalk start
+    sleep(5000)
+
+    // Login required
+    if (currentPackage() == PACKAGE_ID_DINGTALK && currentActivity() == SIGNUP_ACTIVITY) {                             
+        console.info("Begin to logging in account")
         
         var account = id("et_phone_input").findOne()
         account.setText(config.DDInfo.DDAccount)
-        console.log("input account")
 
         var password = id("et_pwd_login").findOne()
         password.setText(config.DDInfo.DDPassword)
-        console.log("input password")
         
         var btn_login = id("btn_next").findOne()
         btn_login.click()
-        console.log("login...")
 
         sleep(3000)
     }
 
-    if (currentPackage() == PACKAGE_ID_DINGTALK &&
-        currentActivity() != SIGNUP_ACTIVITY) {
-        console.info("Account is login")
+    if (currentPackage() == PACKAGE_ID_DINGTALK && currentActivity() != SIGNUP_ACTIVITY) {
+        console.info("Succeed to login")
+    }
+    else {
+        console.error("Failed to login")
     }
 }
 
@@ -310,9 +306,8 @@ function attendClockPage(){
     app.startActivity(a);
     console.log("Bringing up clock page...")
     
-    textContains("打卡").waitFor()
-    console.info("Succeed to bring up clock page.")
-    sleep(10000)
+    textContains("已进入考勤范围").waitFor()
+    console.info("Succeed to bring up clock page and could clock now")
 }
 
 
@@ -325,8 +320,7 @@ function clockIn() {
 
     if (null != textContains("已打卡").findOne(1000)) {
         console.info("Already clock in")
-        home()
-        sleep(1000)
+        // TODO: Send already clock in message
         return;
     }
 
@@ -336,13 +330,9 @@ function clockIn() {
         console.log("Press clock in button")
     }
     else {
-        click(device.width / 2, device.height * 0.560)
-        console.log("Press clock in button use position")
+        console.error("Can not find clock in button")
+        // TODO: Send clock in failed message
     }
-
-    sleep(10000)
-    home()
-    sleep(1000)
 }
 
 
@@ -363,13 +353,8 @@ function clockOut() {
         console.warn("Check out earlier")
     }
     else {
-        click(device.width / 2, device.height * 0.560)
-        console.log("Press clock out button use position")
+        // TODO: Send clock out failed message
     }
-    
-    sleep(10000)
-    home()
-    sleep(1000)
 }
 
 function dateDigitToString(num){
