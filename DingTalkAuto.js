@@ -170,9 +170,11 @@ function brightScreen() {
     
     if (!device.isScreenOn()) {
         console.warn("Failed to wake up device.")
+        return false
     }
     else {
         console.info("Device has been wakeuped.")
+        return true
     }
 }
 
@@ -200,9 +202,13 @@ function brightScreen() {
 
     // wait back to main screen
     sleep(2000)
-
-    text("锁屏").waitFor()  // find the shortcut
-    click("锁屏")           // click the shortcut
+            
+    if (null != text("锁屏").findOne(1000)) {
+        click("锁屏")
+    }
+    else {
+        console.error("Failed to lockscreen shortcut on main screen by text: 锁屏")
+    }
 
     // brightness mode auto
     device.setBrightnessMode(1)
@@ -212,9 +218,11 @@ function brightScreen() {
     
     if (isDeviceLocked()) {
         console.info("Succeed to lock screen")
+        return true
     }
     else {
         console.error("Failed to lock screen, please lock screen manually")
+        return false
     }
 }
 
@@ -244,9 +252,11 @@ function unlockScreen() {
 
     if (isDeviceLocked()) {
         console.error("Failed to unlock screen")
+        return false
     }
     else {
         console.info("Succeed to unlock screen")
+        return true
     }
 }
 
@@ -281,9 +291,11 @@ function signIn() {
 
     if (currentPackage() == PACKAGE_ID_DINGTALK && currentActivity() != SIGNUP_ACTIVITY) {
         console.info("Succeed to login")
+        return true
     }
     else {
         console.error("Failed to login")
+        return false
     }
 }
 
@@ -305,9 +317,15 @@ function attendClockPage(){
     });
     app.startActivity(a);
     console.log("Bringing up clock page...")
-    
-    textContains("已进入考勤范围").waitFor()
-    console.info("Succeed to bring up clock page and could clock now")
+           
+    if (null != textMatches("打卡").clickable(true).findOne(1000)) {
+        console.info("Succeed to bring up clock page and could clock now")
+        return true
+    }
+    else {
+        console.error("Failed to bring up clock page")
+        return false
+    }
 }
 
 
@@ -321,17 +339,20 @@ function clockIn() {
     if (null != textContains("已打卡").findOne(1000)) {
         console.info("Already clock in")
         // TODO: Send already clock in message
-        return;
+        sendResult("已打卡")
+        return true;
     }
 
     if (null != textMatches("上班打卡").clickable(true).findOne(1000)) {
         btn_clockin = textMatches("上班打卡").clickable(true).findOnce()
         btn_clockin.click()
         console.log("Press clock in button")
+        return true
     }
     else {
         console.error("Can not find clock in button")
-        // TODO: Send clock in failed message
+        sendResult("打卡失败，请查看对应日志")
+        return false
     }
 }
 
@@ -354,7 +375,11 @@ function clockOut() {
     }
     else {
         // TODO: Send clock out failed message
+        sendResult("打卡失败，请查看对应日志")
+        return false
     }
+    
+    return true
 }
 
 function dateDigitToString(num){
