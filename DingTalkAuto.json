@@ -5,6 +5,7 @@
         "CorporationId": "Corporation ID"
     },
     "PushInfo": {
+        "PushDeerServer": "Deer Server",
         "PushMethod": "PushDeer",
         "PushDeerToken": "Push Deer Token",
         "TelegramBotToken": "Telegram Bot Token",

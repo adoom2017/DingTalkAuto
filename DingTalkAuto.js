@@ -49,7 +49,7 @@ function notificationHandler(n) {
     var message = n.getText()
     
     // only monitor messages from Dingtalk and Wechat
-    if (!filterNotification(packageId, message)) {
+    if (!filterNotification(packageId, message) || message == null) {
         return
     }
 
@@ -66,6 +66,7 @@ function notificationHandler(n) {
             })
             return
         }
+        // test push service
         else if (message.indexOf("PushDeer")>=0) {
             threads.shutDownAll()
             threads.start(function(){
@@ -129,7 +130,7 @@ function sendResult(message) {
 }
 
  function sendPushDeer(message) {
-    url = "https://api2.pushdeer.com/message/push"
+    url = "http://" + config.PushInfo.PushDeerServer + "/message/push"
 
     resp = http.post(encodeURI(url), {
         "pushkey": config.PushInfo.PushDeerToken,
